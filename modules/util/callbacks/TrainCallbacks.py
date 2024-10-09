@@ -58,6 +58,11 @@ class TrainCallbacks:
         if self.__on_sample_default:
             with contextlib.suppress(Exception):
                 self.__on_sample_default(sample)
+        if self.fsdp_model is not None:
+            if torch.distributed.get_rank() == 0: # only sample on rank 0
+                super().on_sample_default(*args, **kwargs)
+        else:
+            super().on_sample_default(*args, **kwargs)
 
     # on_update_sample_default_progress
     def set_on_update_sample_default_progress(
