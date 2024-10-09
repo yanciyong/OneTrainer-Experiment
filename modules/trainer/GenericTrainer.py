@@ -127,6 +127,16 @@ class GenericTrainer(BaseTrainer):
             model_names=model_names,
             weight_dtypes=self.config.weight_dtypes(),
         )
+
+        # This is dummy, will changed after a while
+        if config.use_fsdp:
+            my_auto_wrap_policy = size_based_auto_wrap_policy  # Adjust min_num_params as needed
+            self.model = FSDP(self.model,
+                              auto_wrap_policy=my_auto_wrap_policy,
+                              sharding_strategy=ShardingStrategy.FULL_SHARD, # Choose your sharding strategy
+                              device_id=self.train_device)  # Important for initialization on the correct device
+            print("Using FSDP for training.")
+            
         self.model.train_config = self.config
 
         self.callbacks.on_update_status("running model setup")
