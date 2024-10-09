@@ -36,6 +36,9 @@ from torch.nn import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms.functional import pil_to_tensor
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import ShardingStrategy
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, default_auto_wrap_policy
 
 from PIL.Image import Image
 from tqdm import tqdm
