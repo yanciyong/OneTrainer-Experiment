@@ -11,7 +11,6 @@ from modules.util.config.TrainConfig import TrainConfig
 from modules.util.enum.ModelType import ModelType
 from modules.util.modelSpec.ModelSpec import ModelSpec
 
-
 class BaseModelEmbedding:
     def __init__(
             self,
@@ -52,7 +51,38 @@ class BaseModel(metaclass=ABCMeta):
 
     @abstractmethod
     def to(self, device: torch.device):
-        pass
+        if self.model_type.is_stable_diffusion():
+            self.vae_to(device)
+            self.depth_estimator_to(device)
+            self.text_encoder_to(device)
+            self.unet_to(device)
+        elif self.model_type.is_stable_diffusion_3():
+            self.vae_to(device)
+            self.text_encoder_to(device)
+            self.transformer_to(device)
+        elif self.model_type.is_stable_diffusion_xl():
+            self.vae_to(device)
+            self.text_encoder_to(device)
+            self.unet_to(device)
+        elif self.model_type.is_wuerstchen():
+            if self.model_type.is_wuerstchen_v2():
+                self.decoder_text_encoder_to(device)
+            self.decoder_decoder_to(device)
+            self.decoder_vqgan_to(device)
+            self.effnet_encoder_to(device)
+            self.prior_text_encoder_to(device)
+            self.prior_prior_to(device)
+        elif self.model_type.is_pixart():
+            self.vae_to(device)
+            self.text_encoder_to(device)
+            self.transformer_to(device)
+        elif self.model_type.is_flux():
+            self.vae_to(device)
+            self.text_encoder_to(device)
+            self.transformer_to(device)
+
+        if hasattr(self, "_fsdp_wrapped") and self._fsdp_wrapped:
+            self.model.to(device)
 
     @abstractmethod
     def eval(self):
