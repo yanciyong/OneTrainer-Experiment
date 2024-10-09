@@ -36,6 +36,8 @@ from torch.nn import Parameter
 from torch.utils.hooks import RemovableHandle
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms.functional import pil_to_tensor
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
 from PIL.Image import Image
 from tqdm import tqdm
@@ -126,12 +128,22 @@ class GenericTrainer(BaseTrainer):
         )
         self.model.train_config = self.config
 
+        # FSDP Wrapping: Ensure model is moved to GPU first
+        device_id = torch.cuda.current_device()
+        torch.cuda.set_device(device_id)  # Set current CUDA device
+    
+        # Applying FSDP to the entire model
+        self.model = FSDP(self.model, auto_wrap_policy=size_based_auto_wrap_policy)
+    
         self.callbacks.on_update_status("running model setup")
 
+        self.model_setup.setup_optimizations(self.model, self.config)
         self.model_setup.setup_train_device(self.model, self.config)
-        self.model_setup.setup_model(self.model, self.config)
+
+        # Moving to temp_device if needed before FSDP is applied
+        # Wrapping after setting up the device
         self.model.to(self.temp_device)
-        self.model.eval()
+
         torch_gc()
 
         self.callbacks.on_update_status("creating the data loader/caching")
