@@ -402,6 +402,7 @@ class TrainConfig(BaseConfig):
                 2: self.__migration_2,
                 3: self.__migration_3,
                 4: self.__migration_4,
+                5: self.__migration_5,
             }
         )
 
@@ -556,6 +557,10 @@ class TrainConfig(BaseConfig):
             migrated_data["gradient_checkpointing"] = GradientCheckpointingMethod.OFF
 
         return migrated_data
+
+    def __migration_5(self, data: dict) -> dict:
+        data["use_fsdp"] = False  # Default value for older configs
+        return data
 
     def weight_dtypes(self) -> ModelWeightDtypes:
         return ModelWeightDtypes(
