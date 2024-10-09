@@ -42,6 +42,9 @@ class BaseModelSetup(
             model: BaseModel,
             config: TrainConfig,
     ):
+        parameters = self.create_parameters(model, config) # Call create_parameters first
+        init_model_parameters(model, parameters, config) # Pass config to init_model_parameters
+
         pass
 
     @abstractmethod
