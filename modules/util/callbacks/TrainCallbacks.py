@@ -2,6 +2,7 @@ import contextlib
 from collections.abc import Callable
 
 from modules.util.TrainProgress import TrainProgress
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from PIL.Image import Image
 
@@ -22,6 +23,10 @@ class TrainCallbacks:
         self.__on_update_sample_default_progress = on_update_sample_default_progress
         self.__on_sample_custom = on_sample_custom
         self.__on_update_sample_custom_progress = on_update_sample_custom_progress
+        self.fsdp_model = None
+
+    def set_fsdp_model(self, fsdp_model: FSDP | None): # Add setter for fsdp_model
+        self.fsdp_model = fsdp_model
 
     # on_update_train_progress
     def set_on_update_train_progress(
@@ -54,15 +59,17 @@ class TrainCallbacks:
     ):
         self.__on_sample_default = on_sample_default
 
-    def on_sample_default(self, sample: Image):
+    def on_sample_default(self, image: Image):
+        if self.fsdp_model:  # Check if using FSDP
+            if torch.distributed.get_rank() == 0:  # Only execute on rank 0
+                self._on_sample_default_impl(image)  # Call the original implementation
+        else:  # Original behavior if not using FSDP
+            self._on_sample_default_impl(image)
+
+    def _on_sample_default_impl(self, image: Image): # Original implementation of on_sample_default
         if self.__on_sample_default:
             with contextlib.suppress(Exception):
-                self.__on_sample_default(sample)
-        if self.fsdp_model is not None:
-            if torch.distributed.get_rank() == 0: # only sample on rank 0
-                super().on_sample_default(*args, **kwargs)
-        else:
-            super().on_sample_default(*args, **kwargs)
+                self.__on_sample_default(image)
 
     # on_update_sample_default_progress
     def set_on_update_sample_default_progress(
