@@ -38,7 +38,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms.functional import pil_to_tensor
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardingStrategy
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, default_auto_wrap_policy
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
 from PIL.Image import Image
 from tqdm import tqdm
@@ -128,14 +128,16 @@ class GenericTrainer(BaseTrainer):
             weight_dtypes=self.config.weight_dtypes(),
         )
 
-        # This is dummy, will changed after a while
-        if config.use_fsdp:
-            my_auto_wrap_policy = size_based_auto_wrap_policy  # Adjust min_num_params as needed
+        if self.config.use_fsdp:
+            fsdp_auto_wrap_policy = size_based_auto_wrap_policy(min_num_params=100)
+            self.model._fsdp_wrapped = True  # Add a flag to the model to track FSDP wrapping
             self.model = FSDP(self.model,
-                              auto_wrap_policy=my_auto_wrap_policy,
-                              sharding_strategy=ShardingStrategy.FULL_SHARD, # Choose your sharding strategy
-                              device_id=self.train_device)  # Important for initialization on the correct device
-            print("Using FSDP for training.")
+                              auto_wrap_policy=fsdp_auto_wrap_policy,
+                              sharding_strategy=ShardingStrategy.FULL_SHARD,
+                              device_id=self.train_device)
+            print("Training with FSDP.")
+        else:
+             self.model._fsdp_wrapped = False # Add a flag to the model to track whether it's wrapped
             
         self.model.train_config = self.config
 
