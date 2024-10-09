@@ -30,6 +30,9 @@ from modules.util.TrainProgress import TrainProgress
 from modules.util.ui import components
 from modules.util.ui.UIState import UIState
 from modules.zluda import ZLUDA
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.distributed.fsdp import ShardingStrategy
 
 import torch
 
@@ -79,6 +82,7 @@ class TrainUI(ctk.CTk):
         self.training_thread = None
         self.training_callbacks = None
         self.training_commands = None
+        self.fsdp_model = None
 
         # Persistent profiling window.
         self.profiling_window = ProfilingWindow(self)
@@ -538,19 +542,21 @@ class TrainUI(ctk.CTk):
 
     def __training_thread_function(self):
         error_caught = False
-
         self.training_callbacks = TrainCallbacks(
             on_update_train_progress=self.on_update_train_progress,
             on_update_status=self.on_update_status,
         )
-
-        ZLUDA.initialize_devices(self.train_config)
-
-        trainer = GenericTrainer(self.train_config, self.training_callbacks, self.training_commands)
-
         try:
+            ZLUDA.initialize_devices(self.train_config)
+
+            trainer = GenericTrainer(self.train_config, self.training_callbacks, self.training_commands)
+
             trainer.start()
+            if self.train_config.use_fsdp:
+                self.fsdp_model = trainer.model # store the FSDP wrapped model
+                self.training_callbacks.set_fsdp_model(self.fsdp_model) # pass the FSDP model to the callbacks
             trainer.train()
+
         except Exception:
             error_caught = True
             traceback.print_exc()
@@ -597,16 +603,19 @@ class TrainUI(ctk.CTk):
                 json.dump(self.train_config.to_pack_dict(), f, indent=4)
 
     def sample_now(self):
-        train_commands = self.training_commands
-        if train_commands:
-            train_commands.sample_default()
+        if self.fsdp_model:  # Check if FSDP is used
+            self.training_commands.sample_default(self.fsdp_model) # call the correct sample function for FSDP
+        elif self.training_commands: # this is the original logic
+            self.training_commands.sample_default()
 
     def backup_now(self):
-        train_commands = self.training_commands
-        if train_commands:
-            train_commands.backup()
+        if self.fsdp_model:  # Check if FSDP is used
+            self.training_commands.backup(self.fsdp_model) # call the correct backup function for FSDP
+        elif self.training_commands: # this is the original logic
+            self.training_commands.backup()
 
     def save_now(self):
-        train_commands = self.training_commands
-        if train_commands:
-            train_commands.save()
+        if self.fsdp_model:  # Check if FSDP is used
+            self.training_commands.save(self.fsdp_model) # call the correct save function for FSDP
+        elif self.training_commands: # this is the original logic
+            self.training_commands.save()
