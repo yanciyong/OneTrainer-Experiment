@@ -39,9 +39,12 @@ from torchvision.transforms.functional import pil_to_tensor
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardingStrategy
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
 
 from PIL.Image import Image
 from tqdm import tqdm
+from functools import partial
 
 
 class GenericTrainer(BaseTrainer):
@@ -128,24 +131,35 @@ class GenericTrainer(BaseTrainer):
             weight_dtypes=self.config.weight_dtypes(),
         )
 
+        print(f"config.optimizer before setup_model: {self.config.optimizer}")  # Debug print
+        self.model.train_config = self.config
+        self.model_setup.setup_model(self.model, self.config)
+        print(f"config.optimizer after setup_model: {self.config.optimizer}")  # Debug print
+        self.model_setup.setup_optimizations(self.model, self.config)
+
         if self.config.use_fsdp:
-            fsdp_auto_wrap_policy = size_based_auto_wrap_policy(min_num_params=100)
-            self.model._fsdp_wrapped = True  # Add a flag to the model to track FSDP wrapping
+            # Manually specify layers to wrap.  Example for Flux:
+            if self.config.model_type.is_flux():
+                fsdp_policy = transformer_auto_wrap_policy
+            elif self.config.model_type.is_stable_diffusion() or self.config.model_type.is_stable_diffusion_xl() or self.config.model_type.is_stable_diffusion_3():
+                fsdp_policy = lambda model: isinstance(model, torch.nn.Transformer) # wrap transformer layers
+            else:
+                raise NotImplementedError(f"FSDP not implemented for model type {self.config.model_type}")
+
+            self.model._fsdp_wrapped = True
             self.model = FSDP(self.model,
-                              auto_wrap_policy=fsdp_auto_wrap_policy,
+                              auto_wrap_policy=fsdp_policy,
                               sharding_strategy=ShardingStrategy.FULL_SHARD,
                               device_id=self.train_device)
             print("Training with FSDP.")
         else:
-             self.model._fsdp_wrapped = False # Add a flag to the model to track whether it's wrapped
-            
-        self.model.train_config = self.config
+            self.model._fsdp_wrapped = False
+
+        self.model.to(self.temp_device)
 
         self.callbacks.on_update_status("running model setup")
 
-        self.model_setup.setup_optimizations(self.model, self.config)
         self.model_setup.setup_train_device(self.model, self.config)
-        self.model_setup.setup_model(self.model, self.config)
         self.model.to(self.temp_device)
         self.model.eval()
         torch_gc()
@@ -568,6 +582,7 @@ class GenericTrainer(BaseTrainer):
         train_device = torch.device(self.config.train_device)
 
         train_progress = self.model.train_progress
+        config = self.config
 
         if self.config.only_cache:
             self.callbacks.on_update_status("caching")
