@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from uuid import uuid4
 
 import torch
+from torch import nn
 from torch.optim import Optimizer
 
 from modules.module.EMAModule import EMAModuleWrapper
@@ -48,6 +49,15 @@ class BaseModel(metaclass=ABCMeta):
         self.train_progress = TrainProgress()
         self.model_spec = None
         self.train_config = None
+
+    def modules(self):  # Dummy modules() method
+        return []
+
+    def named_buffers(self, prefix='', recurse=True): # Dummy named_buffers()
+        return []
+
+    def named_parameters(self, prefix='', recurse=True): # Dummy named_parameters()
+        return []
 
     @abstractmethod
     def to(self, device: torch.device):
