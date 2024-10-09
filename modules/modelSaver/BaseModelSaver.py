@@ -17,5 +17,7 @@ class BaseModelSaver(metaclass=ABCMeta):
             output_model_format: ModelFormat,
             output_model_destination: str,
             dtype: torch.dtype | None,
+        if isinstance(model, FSDP):
+            model = model.module
     ):
         pass
