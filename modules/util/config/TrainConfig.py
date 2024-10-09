@@ -238,6 +238,7 @@ class TrainConfig(BaseConfig):
     validate_after_unit: TimeUnit
     continue_last_backup: bool
     include_train_config: ConfigPart
+    use_fsdp: bool
 
     # model settings
     base_model_name: str
@@ -675,6 +676,7 @@ class TrainConfig(BaseConfig):
         data.append(("validate_after_unit", TimeUnit.EPOCH, TimeUnit, False))
         data.append(("continue_last_backup", False, bool, False))
         data.append(("include_train_config", ConfigPart.NONE, ConfigPart, False))
+        data.append(("use_fsdp", False, bool, False))
 
         # model settings
         data.append(("base_model_name", "runwayml/stable-diffusion-v1-5", str, False))
