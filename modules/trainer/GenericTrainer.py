@@ -577,7 +577,8 @@ class GenericTrainer(BaseTrainer):
 
         scaler = create_grad_scaler() if enable_grad_scaling(self.config.train_dtype, self.parameters) else None
 
-        self.__apply_fused_back_pass(scaler)
+        if not self.config.use_fsdp: # only apply fused back pass when not using fsdp
+            self.__apply_fused_back_pass(scaler)
 
         # False if the model gradients are all None, True otherwise
         # This is used to schedule sampling only when the gradients don't take up any space
@@ -586,7 +587,22 @@ class GenericTrainer(BaseTrainer):
         lr_scheduler = None
         accumulated_loss = 0.0
         ema_loss = None
-        for _epoch in tqdm(range(train_progress.epoch, self.config.epochs, 1), desc="epoch"):
+        if self.config.use_fsdp:
+            from torch.utils.data import DistributedSampler
+            data_sampler = DistributedSampler(self.data_loader.get_data_set(), shuffle=True, drop_last=True)
+            # data_loader = create.create_data_loader(self.model, self.model.train_progress)
+            data_loader = torch.utils.data.DataLoader(self.data_loader.get_data_set(),
+                batch_size=self.config.batch_size,
+                sampler=data_sampler,
+                num_workers=self.config.dataloader_threads,
+                pin_memory=True if self.train_device.type == "cuda" else False,
+                persistent_workers=True if self.train_device.type == "cuda" else False,
+                prefetch_factor=2 if self.train_device.type == "cuda" else None)
+
+        for epoch in tqdm(range(train_progress.epoch, self.config.epochs, 1), desc="epoch"):
+            if self.config.use_fsdp:
+                data_sampler.set_epoch(epoch)
+
             self.callbacks.on_update_status("starting epoch/caching")
 
             if self.config.latent_caching:
@@ -620,8 +636,13 @@ class GenericTrainer(BaseTrainer):
                 )
 
             current_epoch_length = self.data_loader.get_data_set().approximate_length()
-            step_tqdm = tqdm(self.data_loader.get_data_loader(), desc="step", total=current_epoch_length,
+            if self.config.use_fsdp:
+                step_tqdm = tqdm(data_loader, desc="step", total=len(data_loader),
                              initial=train_progress.epoch_step)
+            else:
+                step_tqdm = tqdm(self.data_loader.get_data_loader(), desc="step", total=current_epoch_length,
+                             initial=train_progress.epoch_step)
+                
             for batch in step_tqdm:
                 if self.__needs_sample(train_progress) or self.commands.get_and_reset_sample_default_command():
                     self.__enqueue_sample_during_training(
@@ -660,23 +681,37 @@ class GenericTrainer(BaseTrainer):
                     loss = loss / self.config.gradient_accumulation_steps
                     if scaler:
                         scaler.scale(loss).backward()
+                    if config.use_fsdp:
+                        self.model.backward(loss) # Use model.backward with FSDP
                     else:
-                        loss.backward()
+                        loss.backward() # Regular backward for single GPU
 
                     has_gradient = True
                     accumulated_loss += loss.item()
 
                     if self.__is_update_step(train_progress):
+
                         if scaler and self.config.optimizer.optimizer.supports_fused_back_pass() and self.config.optimizer.fused_back_pass:
                             scaler.step_after_unscale_parameter_(self.model.optimizer)
                             scaler.update()
                         elif scaler:
                             scaler.unscale_(self.model.optimizer)
-                            nn.utils.clip_grad_norm_(self.parameters, 1)
+
+                            if self.config.use_fsdp:
+                                self.model.clip_grad_norm_(1.0) # Use FSDP's clip_grad_norm_
+                                self.model.reduce_gradients() # Average gradients
+                            else:
+                                nn.utils.clip_grad_norm_(self.parameters, 1)
+
+
                             scaler.step(self.model.optimizer)
                             scaler.update()
                         else:
-                            nn.utils.clip_grad_norm_(self.parameters, 1)
+                            if self.config.use_fsdp:
+                                self.model.clip_grad_norm_(1.0) # Use FSDP's clip_grad_norm_
+                                self.model.reduce_gradients()  # Average gradients
+                            else:
+                                nn.utils.clip_grad_norm_(self.parameters, 1)
                             self.model.optimizer.step()
 
                         lr_scheduler.step()  # done before zero_grad, because some lr schedulers need gradients
@@ -720,6 +755,11 @@ class GenericTrainer(BaseTrainer):
 
                 if self.commands.get_stop_command():
                     return
+
+                if self.config.use_fsdp:
+                    train_progress.next_step(self.config.batch_size * torch.distributed.get_world_size()) # multiply batch size by world size when using FSDP
+                else:
+                    train_progress.next_step(self.config.batch_size) # this is the original line
 
             train_progress.next_epoch()
             self.callbacks.on_update_train_progress(train_progress, current_epoch_length, self.config.epochs)
