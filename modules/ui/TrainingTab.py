@@ -214,6 +214,10 @@ class TrainingTab:
                          tooltip="Selects the type of learning rate scaling to use during training. Functionally equated as: LR * SQRT(selection)")
         components.options(frame, 8, 1, [str(x) for x in list(LearningRateScaler)], self.ui_state,
                            "learning_rate_scaler")
+        # FSDP Option
+        components.label(frame, 9, 0, "Use FSDP",
+                     tooltip="Enables Fully Sharded Data Parallel training.")
+        components.switch(frame, 9, 1, self.ui_state, "use_fsdp")
 
     def __create_base2_frame(self, master, row):
         frame = ctk.CTkFrame(master=master, corner_radius=5)
