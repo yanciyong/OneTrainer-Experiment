@@ -47,13 +47,14 @@ def update_optimizer_config(train_config: TrainConfig):
 def init_model_parameters(
         model: BaseModel,
         parameters: NamedParameterGroupCollection,
+        config: TrainConfig,
 ):
     model.parameters = parameters
 
-    model.optimizer = create.create_optimizer(parameters, model.optimizer_state_dict, model.train_config)
+    model.optimizer = create.create_optimizer(parameters, model.optimizer_state_dict, config)
     model.optimizer_state_dict = None
 
-    model.ema = create.create_ema(parameters.parameters(), model.ema_state_dict, model.train_config)
+    model.ema = create.create_ema(parameters.parameters(), model.ema_state_dict, config)
     model.ema_state_dict = None
 
     model.param_group_mapping = parameters.unique_name_mapping
